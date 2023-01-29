@@ -6,6 +6,7 @@ import com.xcc.dao.UserDao;
 import com.xcc.domain.User;
 import com.xcc.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.bind.annotation.RequestBody;
 
@@ -23,6 +24,9 @@ public class UserServiceImpl implements UserService {
     @Autowired
     private UserDao userDao;
 
+    @Autowired
+    private RedisTemplate redisTemplate;
+
     /**
      * 用户验证码登录
      *
@@ -31,19 +35,26 @@ public class UserServiceImpl implements UserService {
      */
     @Override
     public R login(Map map, HttpServletRequest request) {
+        //用户输入的手机号和验证码
         String phone = (String) map.get("phone");
         Object code = map.get("code");
 
-        String phone1 = (String) request.getSession().getAttribute("phone");
-        String code1 = (String) request.getSession().getAttribute("code");
+        //从session中取出
+//        String phone1 = (String) request.getSession().getAttribute("phone");
+//        String code1 = (String) request.getSession().getAttribute("code");
 
-        if (phone.equals(phone1) && code.equals(code1)) {
+        //验证是否匹配
+        String code1 = (String) redisTemplate.opsForValue().get(phone);
+        if (code.equals(code1)) {
             //判断当前手机号是否注册
             LambdaQueryWrapper<User> queryWrapper = new LambdaQueryWrapper<>();
             queryWrapper.eq(phone != null, User::getPhone, phone);
             User user1 = userDao.selectOne(queryWrapper);
             if (user1 != null) {
                 request.getSession().setAttribute("user", user1.getId());
+
+                //登录成功从缓存中删除该验证码
+                redisTemplate.delete(phone);
                 return R.success("成功!");
             } else {
                 //没有注册 则注册
@@ -52,6 +63,9 @@ public class UserServiceImpl implements UserService {
                 user.setStatus(1);
                 userDao.insert(user);
                 request.getSession().setAttribute("user", user.getId());
+
+                //登录成功从缓存中删除该验证码
+                redisTemplate.delete(phone);
                 return R.success("成功!");
             }
         } else {

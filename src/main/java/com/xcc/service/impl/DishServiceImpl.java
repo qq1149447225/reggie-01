@@ -19,11 +19,13 @@ import org.apache.coyote.OutputBuffer;
 import org.omg.CORBA.PUBLIC_MEMBER;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author xcc
@@ -42,6 +44,9 @@ public class DishServiceImpl implements DishService {
     @Autowired
     private CategoryDao categoryDao;
 
+    @Autowired
+    private RedisTemplate redisTemplate;
+
     @Override
     @Transactional
     public R<String> save(DishDto dishDto) {
@@ -58,6 +63,9 @@ public class DishServiceImpl implements DishService {
         }
 
         if (insert > 0) {
+            //清理该分类的缓存
+            String key = "dish_" + dishDto.getCategoryId() + "_1";
+            redisTemplate.delete(key);
             return R.success("成功");
         } else {
             return R.error("失败");
@@ -140,6 +148,9 @@ public class DishServiceImpl implements DishService {
         updateWrapper.eq(Dish::getId, dishDto.getId());
         int update = DishDao.update(dishDto, updateWrapper);
         if (update > 0) {
+            //清理该分类的缓存
+            String key = "dish_" + dishDto.getCategoryId() + "_1";
+            redisTemplate.delete(key);
             return R.success("更新成功");
         } else {
             return R.error("更新失败");
@@ -182,34 +193,44 @@ public class DishServiceImpl implements DishService {
     /**
      * 查询当前分类下的所有菜品
      * 口味
+     *
      * @param dish
      * @return
      */
     @Override
     public R<List<DishDto>> getDish(Dish dish) {
+        String key = "dish_" + dish.getCategoryId() + "_" + dish.getStatus();
+        ArrayList<DishDto> dishDtos = null;
+        //查询缓存是否存在该集合
+        dishDtos = (ArrayList<DishDto>) redisTemplate.opsForValue().get(key);
+        if (dishDtos != null) {
+            //存则则返回
+            return R.success(dishDtos);
+        }
 
         //查询当前分类下的所有菜品集合
         LambdaQueryWrapper<Dish> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(Dish::getCategoryId,dish.getCategoryId());
-        queryWrapper.eq(Dish::getStatus,1);
+        queryWrapper.eq(Dish::getCategoryId, dish.getCategoryId());
+        queryWrapper.eq(Dish::getStatus, 1);
         List<Dish> dishList = DishDao.selectList(queryWrapper);
 
         //根据菜品查询口味
-        ArrayList<DishDto> dishDtos = new ArrayList<>();
+        dishDtos = new ArrayList<>();
 
         for (Dish dish1 : dishList) {
             LambdaQueryWrapper<DishFlavor> queryWrapper1 = new LambdaQueryWrapper<>();
-            queryWrapper1.eq(DishFlavor::getDishId,dish1.getId());
+            queryWrapper1.eq(DishFlavor::getDishId, dish1.getId());
             List<DishFlavor> dishFlavors = dishFlavorDao.selectList(queryWrapper1);
 
             DishDto dishDto = new DishDto();
 
-            BeanUtils.copyProperties(dish1,dishDto);
+            BeanUtils.copyProperties(dish1, dishDto);
             dishDto.setFlavors(dishFlavors);
 
             dishDtos.add(dishDto);
         }
-
+        //不存在则查询 并加入到缓存
+        redisTemplate.opsForValue().set(key, dishDtos, 60, TimeUnit.MINUTES);
         return R.success(dishDtos);
     }
 

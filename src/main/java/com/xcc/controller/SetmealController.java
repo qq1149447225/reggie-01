@@ -8,6 +8,7 @@ import com.xcc.domain.Setmeal;
 import com.xcc.dto.SetmealDto;
 import com.xcc.service.SetmealService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -59,9 +60,12 @@ public class SetmealController {
      * @return
      */
     @GetMapping("/{id}")
+    @Cacheable(value = "SetmealsCache", key = "#id", unless = "#result==null")
     public R getSetmeals(@PathVariable Long id) {
         return Service.getSetmeals(id);
     }
+
+
 
     @GetMapping("/list")
     public R getBusinessPackage(SetmealDto setmealDto) {
